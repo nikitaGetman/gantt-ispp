@@ -1,7 +1,23 @@
 <template>
   <div class="main">
-    <div class="main__chart mt-8">
-      <g-gantt-chart :chart-start="myChartStart" :chart-end="myChartEnd">
+    <div class="main__chart mt-4">
+      <div class="mb-4 d-flex">
+        <v-spacer></v-spacer>
+
+        <v-menu offset-y>
+          <template v-slot:activator="{ on, attrs }">
+            <v-btn color="primary" v-bind="attrs" v-on="on">
+              Дата начала: {{ foramttedDateString }}
+            </v-btn>
+          </template>
+          <v-date-picker v-model="valueDate" class="mt-4"></v-date-picker>
+        </v-menu>
+      </div>
+
+      <g-gantt-chart
+        :chart-start="$options.moment(startDate).format()"
+        :chart-end="myChartEnd"
+      >
         <g-gantt-row
           v-for="(queue, index) in queues"
           :key="index"
@@ -44,11 +60,13 @@
         ></v-select>
       </v-col>
 
-      <v-spacer />
+      <v-spacer></v-spacer>
 
-      <v-btn x-large @click="calc" color="primary" :disabled="!method">
-        Рассчитать
-      </v-btn>
+      <v-col :cols="2">
+        <v-btn x-large @click="calc" color="primary" :disabled="!method">
+          Рассчитать
+        </v-btn>
+      </v-col>
     </v-row>
 
     <div class="main__matrix mt-6">
@@ -88,7 +106,8 @@
             hide-details
             outlined
             type="number"
-            v-model="matrix[detail - 1].times[machine - 1]"
+            :value="matrix[detail - 1].times[machine - 1]"
+            @input="setMatrix(detail - 1, machine - 1, $event)"
           ></v-text-field>
         </div>
       </div>
@@ -155,9 +174,10 @@ export default {
   components: { GGanttChart, GGanttRow },
   COLORS,
   METHODS,
+  moment,
   data() {
     return {
-      myChartStart: "2020-03-01 00:00",
+      startDate: new Date(),
       results: [],
 
       machines: 5,
@@ -178,6 +198,17 @@ export default {
     },
   },
   computed: {
+    foramttedDateString(){
+      return moment(this.startDate).format("L")
+    },
+    valueDate:{
+      get(){
+        return moment(this.startDate).format('YYYY-MM-DD')
+      },
+      set(val){
+        this.startDate = moment(val).format()
+      }
+    },
     numOptions() {
       return Array.apply(null, Array(10)).map(function (val, index) {
         return index + 1;
@@ -187,7 +218,7 @@ export default {
       return this.results.length ? [...this.queues[this.machines - 1]].pop().end : '2020-03-02 00:00';
     },
     detailTimes() {
-      const startTime = moment(this.myChartStart);
+      const startTime = moment(this.startDate);
     
       return this.results.map(({ name, startTimes, times }) => {
         const starts = startTimes.map( st => moment(startTime).add(st ,'hours'))
@@ -195,7 +226,6 @@ export default {
         
         return { name, starts, ends };
       });
-
     },
     queues(){
       const detailTimes = this.detailTimes
@@ -225,16 +255,21 @@ export default {
   },
   methods: {
     calc() {
-      const data = parseInputData(inputData);
-      const res = METHODS_FUNCS[this.method](data);
+      const res = METHODS_FUNCS[this.method]([...this.matrix]);
 
       this.results = res;
     },
+    setMatrix(i, y, val){
+      this.matrix[i].times[y] = Number(val)
+    },
     createMatrix() {
-      // TODO считать правильно
-      this.matrix = Array.from({ length: this.machines }, (v, index) =>
-        ({name: index + 1,times: Array.from({ length: this.details })})
-      );
+      this.results = []
+      this.matrix = Array.from({ length: this.details })
+
+      for(let i = 0; i < this.matrix.length; i++){
+        const row = {name: i+1, times: Array.from({length: this.machines}).fill(0) }
+        this.matrix[i] = row
+      }
     },
   },
 };
