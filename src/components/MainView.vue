@@ -1,7 +1,7 @@
 <template>
   <div class="main">
     <div class="main__chart mt-4">
-      <div class="mb-4 d-flex">
+      <div class="d-flex">
         <v-spacer></v-spacer>
 
         <v-menu offset-y>
@@ -14,6 +14,32 @@
         </v-menu>
       </div>
 
+      <h3 class="text-h6">
+        Начальный график:
+        <span v-if="initialTimer">({{ initialTimer }} ч)</span>
+      </h3>
+      <g-gantt-chart
+        :chart-start="$options.moment(startDate).format()"
+        :chart-end="myChartEnd"
+      >
+        <g-gantt-row
+          v-for="(r, index) in rawQueues"
+          :key="index"
+          :label="`Станок: ${index + 1}`"
+          :bars="r"
+          bar-start="start"
+          bar-end="end"
+        />
+      </g-gantt-chart>
+
+      <h3 class="text-h6">
+        Оптимальный график: (<span
+          v-if="efficiency !== null"
+          :class="`${efficiency >= 0 ? 'green' : 'red'}--text`"
+        >
+          на {{ efficiency }}% быстрее </span
+        >)
+      </h3>
       <g-gantt-chart
         :chart-start="$options.moment(startDate).format()"
         :chart-end="myChartEnd"
@@ -29,7 +55,7 @@
       </g-gantt-chart>
     </div>
 
-    <v-row class="mt-8" align="center">
+    <v-row align="center">
       <v-col :cols="3" class="d-flex align-center">
         <span class="text-h5 mr-5">Детали:</span>
         <v-select
@@ -117,7 +143,7 @@
 
 <script>
 import { GGanttChart, GGanttRow } from "vue-ganttastic";
-import { inputData, parseInputData } from "@/utils/core";
+import { inputData, parseInputData, calcStartTimes } from "@/utils/core";
 import { JonsonFirst } from "@/utils/plugins/JonsonFirst.plugin";
 import { JonsonSecond } from "@/utils/plugins/JonsonSecond.plugin";
 import { JonsonThird } from "@/utils/plugins/JonsonThird.plugin";
@@ -179,6 +205,7 @@ export default {
     return {
       startDate: new Date(),
       results: [],
+      rawResult: [],
 
       machines: 5,
       details: 5,
@@ -188,6 +215,7 @@ export default {
   },
   created() {
     this.matrix = parseInputData(inputData);
+    this.rawResult = calcStartTimes(this.matrix)
   },
   watch: {
     details() {
@@ -201,6 +229,26 @@ export default {
     foramttedDateString(){
       return moment(this.startDate).format("L")
     },
+    efficiency(){
+      const raw = this.rawResult.length && [...this.rawQueues[this.machines - 1]].pop().end;
+      const calc = this.results.length && [...this.queues[this.machines - 1]].pop().end;
+      if(raw && calc){
+        const rD = moment(raw) - moment(this.startDate)
+        const cD = moment(calc) - moment(this.startDate)
+
+        const diff = 1 - (cD / rD)
+        return Math.round(diff * 100) 
+      }
+      return null
+    },
+    initialTimer(){
+       const raw = this.rawResult.length && [...this.rawQueues[this.machines - 1]].pop().end;
+       if(raw){
+         const r = moment(raw).diff(moment(this.startDate), 'hours') 
+         return r
+       }
+       return null
+    },
     valueDate:{
       get(){
         return moment(this.startDate).format('YYYY-MM-DD')
@@ -210,13 +258,53 @@ export default {
       }
     },
     numOptions() {
-      return Array.apply(null, Array(10)).map(function (val, index) {
-        return index + 1;
+      return Array.apply(null, Array(9)).map(function (val, index) {
+        return index + 2;
       });
     },
     myChartEnd() {
-      return this.results.length ? [...this.queues[this.machines - 1]].pop().end : '2020-03-02 00:00';
+      const raw = this.rawResult.length && [...this.rawQueues[this.machines - 1]].pop().end;
+      const calc = this.results.length && [...this.queues[this.machines - 1]].pop().end;
+      const res = moment(raw) > moment(calc) ? raw : calc
+      return res || null;
     },
+    rawDetailTimes(){
+      const startTime = moment(this.startDate);
+    
+      return this.rawResult.map(({ name, startTimes, times }) => {
+        const starts = startTimes.map( st => moment(startTime).add(st ,'hours'))
+        const ends = starts.map((st, index) => moment(st).add(times[index], 'hours'))
+        
+        return { name, starts, ends };
+      });
+    },
+    rawQueues(){
+      const rawDetailTimes = this.rawDetailTimes
+
+      if(rawDetailTimes.length){
+          const queues = Array.from({length: this.machines}).map(() => Array.from({length: this.details}))
+
+          for(let det=0; det < this.details; det++){
+            for(let machine = 0; machine < this.machines; machine++){
+              const detail = rawDetailTimes[det]
+            queues[machine][det] = {
+              name: detail.name, 
+              start: detail.starts[machine].format(), 
+              end: detail.ends[machine].format(),
+              ganttBarConfig: {
+                  background: COLORS[detail.name-1]
+              }
+            }
+          }
+        }
+
+        return queues
+      }
+
+      return []
+    },
+
+
     detailTimes() {
       const startTime = moment(this.startDate);
     
@@ -261,9 +349,12 @@ export default {
     },
     setMatrix(i, y, val){
       this.matrix[i].times[y] = Number(val)
+
+      this.rawResult = calcStartTimes(this.matrix)
     },
     createMatrix() {
       this.results = []
+      this.rawResult = []
       this.matrix = Array.from({ length: this.details })
 
       for(let i = 0; i < this.matrix.length; i++){
